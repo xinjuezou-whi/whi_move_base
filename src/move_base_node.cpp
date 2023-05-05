@@ -59,7 +59,8 @@ int main(int argc, char** argv)
 
   move_base::MoveBase move_base(buffer);
 
-  ros::spin();
+  ros::MultiThreadedSpinner spinner(4);
+	spinner.spin();
 
   return(0);
 }
