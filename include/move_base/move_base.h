@@ -34,6 +34,23 @@
 *
 * Author: Eitan Marder-Eppstein
 *********************************************************************/
+/******************************************************************
+move_base with interacting state
+refactorred version from ROS move_base, please check above disclaimer
+
+Features:
+- interacting state for block other goals
+- using frame_id with keys "block and unblock"
+
+Written by Xinjue Zou, xinjue.zou@outlook.com
+
+GNU General Public License, check LICENSE for more information.
+All text above must be included in any redistribution.
+
+Changelog:
+2023-05-05: Initial version
+2022-xx-xx: xxx
+******************************************************************/
 #ifndef NAV_MOVE_BASE_ACTION_H_
 #define NAV_MOVE_BASE_ACTION_H_
 
@@ -74,6 +91,12 @@ namespace move_base {
     PLANNING_R,
     CONTROLLING_R,
     OSCILLATION_R
+  };
+
+  enum InteractState
+  {
+    INT_NONE =0,
+    INT_BLOCKED
   };
 
   /**
@@ -174,6 +197,9 @@ namespace move_base {
        */
       void wakePlanner(const ros::TimerEvent& event);
 
+      bool handleInteracteState(geometry_msgs::PoseStamped& TargetPose);
+
+    private:
       tf2_ros::Buffer& tf_;
 
       MoveBaseActionServer* as_;
@@ -232,7 +258,8 @@ namespace move_base {
       move_base::MoveBaseConfig default_config_;
       bool setup_, p_freq_change_, c_freq_change_;
       bool new_global_plan_;
-  };
-};
-#endif
 
+      InteractState int_state_{ INT_NONE };
+  };
+}
+#endif

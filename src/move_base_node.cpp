@@ -27,17 +27,38 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/******************************************************************
+node to handle move_base
+refactorred version from ROS move_base, please check above disclaimer
+
+Features:
+- interacting state for block other goals
+- xxx
+
+Written by Xinjue Zou, xinjue.zou@outlook.com
+
+GNU General Public License, check LICENSE for more information.
+All text above must be included in any redistribution.
+
+Changelog:
+2023-05-05: Initial version
+2022-xx-xx: xxx
+******************************************************************/
 #include <move_base/move_base.h>
 #include <tf2_ros/transform_listener.h>
 
-int main(int argc, char** argv){
+int main(int argc, char** argv)
+{
+  /// node version and copyright announcement
+	std::cout << "\nWHI move_base VERSION 00.01" << std::endl;
+	std::cout << "Copyright © 2023-2024 Wheel Hub Intelligent Co.,Ltd. All rights reserved\n" << std::endl;
+
   ros::init(argc, argv, "move_base_node");
   tf2_ros::Buffer buffer(ros::Duration(10));
   tf2_ros::TransformListener tf(buffer);
 
-  move_base::MoveBase move_base( buffer );
+  move_base::MoveBase move_base(buffer);
 
-  //ros::MultiThreadedSpinner s;
   ros::spin();
 
   return(0);

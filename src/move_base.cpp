@@ -35,6 +35,20 @@
 * Author: Eitan Marder-Eppstein
 *         Mike Phillips (put the planner in its own thread)
 *********************************************************************/
+/******************************************************************
+move_base with interacting state
+refactorred version from ROS move_base, please check above disclaimer
+
+Features:
+- interacting state for block other goals
+- xxx
+
+Written by Xinjue Zou, xinjue.zou@outlook.com
+
+GNU General Public License, check LICENSE for more information.
+All text above must be included in any redistribution.
+
+******************************************************************/
 #include <move_base/move_base.h>
 #include <move_base_msgs/RecoveryStatus.h>
 #include <cmath>
@@ -273,10 +287,17 @@ namespace move_base {
   }
 
   void MoveBase::goalCB(const geometry_msgs::PoseStamped::ConstPtr& goal){
+    auto targetPose = *goal;
+    if (!handleInteracteState(targetPose))
+    {
+      ROS_DEBUG_NAMED("move_base", "Aborting on goal for being occupied by interacting action");
+      return;
+    }
+
     ROS_DEBUG_NAMED("move_base","In ROS goal callback, wrapping the PoseStamped in the action message and re-sending to the server.");
     move_base_msgs::MoveBaseActionGoal action_goal;
     action_goal.header.stamp = ros::Time::now();
-    action_goal.goal.target_pose = *goal;
+    action_goal.goal.target_pose = targetPose;
 
     action_goal_pub_.publish(action_goal);
   }
@@ -650,12 +671,19 @@ namespace move_base {
 
   void MoveBase::executeCb(const move_base_msgs::MoveBaseGoalConstPtr& move_base_goal)
   {
+    auto targetPose = move_base_goal->target_pose;
+    if (!handleInteracteState(targetPose))
+    {
+      as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal for being occupied by interacting action");
+      return;
+    }
+
     if(!isQuaternionValid(move_base_goal->target_pose.pose.orientation)){
       as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because it was sent with an invalid quaternion");
       return;
     }
 
-    geometry_msgs::PoseStamped goal = goalToGlobalFrame(move_base_goal->target_pose);
+    geometry_msgs::PoseStamped goal = goalToGlobalFrame(targetPose);
 
     publishZeroVelocity();
     //we have a goal so start the planner
@@ -1201,6 +1229,32 @@ namespace move_base {
                         "Current time: %.4f, pose stamp: %.4f, tolerance: %.4f", costmap->getName().c_str(),
                         current_time.toSec(), global_pose.header.stamp.toSec(), costmap->getTransformTolerance());
       return false;
+    }
+
+    return true;
+  }
+
+  bool MoveBase::handleInteracteState(geometry_msgs::PoseStamped& TargetPose)
+  {
+    if (int_state_ == INT_BLOCKED)
+    {
+      if (TargetPose.header.frame_id.find("block") == std::string::npos)
+      {
+        return false;
+      }
+      else
+      {
+        int_state_ = TargetPose.header.frame_id == "unblock" ? INT_NONE : INT_BLOCKED;
+        TargetPose.header.frame_id = "map";
+      }
+    }
+    else
+    {
+      if (TargetPose.header.frame_id == "block")
+      {
+        TargetPose.header.frame_id = "map";
+        int_state_ == INT_BLOCKED;
+      }
     }
 
     return true;
