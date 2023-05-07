@@ -1244,16 +1244,26 @@ namespace move_base {
       }
       else
       {
-        int_state_ = TargetPose.header.frame_id == "unblock" ? INT_NONE : INT_BLOCKED;
+        int_state_ = TargetPose.header.frame_id.find("unblock") != std::string::npos ?
+          INT_NONE : INT_BLOCKED;
         TargetPose.header.frame_id = "map";
+        if (TargetPose.header.frame_id.find("_only") != std::string::npos)
+        {
+          return false;
+        }
       }
     }
     else
     {
-      if (TargetPose.header.frame_id == "block")
+      if (TargetPose.header.frame_id.find("block") != std::string::npos &&
+        TargetPose.header.frame_id.find("unblock") == std::string::npos)
       {
         TargetPose.header.frame_id = "map";
         int_state_ == INT_BLOCKED;
+        if (TargetPose.header.frame_id.find("_only") != std::string::npos)
+        {
+          return false;
+        }
       }
     }
 

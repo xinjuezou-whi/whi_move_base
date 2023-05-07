@@ -50,7 +50,7 @@ Changelog:
 int main(int argc, char** argv)
 {
   /// node version and copyright announcement
-	std::cout << "\nWHI move_base VERSION 00.01" << std::endl;
+	std::cout << "\nWHI move_base VERSION 00.02" << std::endl;
 	std::cout << "Copyright © 2023-2024 Wheel Hub Intelligent Co.,Ltd. All rights reserved\n" << std::endl;
 
   ros::init(argc, argv, "move_base_node");
