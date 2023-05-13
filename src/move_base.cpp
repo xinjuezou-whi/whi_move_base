@@ -1259,7 +1259,7 @@ namespace move_base {
         TargetPose.header.frame_id.find("unblock") == std::string::npos)
       {
         TargetPose.header.frame_id = "map";
-        int_state_ == INT_BLOCKED;
+        int_state_ = INT_BLOCKED;
         if (TargetPose.header.frame_id.find("_only") != std::string::npos)
         {
           return false;
