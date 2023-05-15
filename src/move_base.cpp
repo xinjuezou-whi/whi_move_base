@@ -287,6 +287,12 @@ namespace move_base {
   }
 
   void MoveBase::goalCB(const geometry_msgs::PoseStamped::ConstPtr& goal){
+    if (int_state_ == INT_BLOCKED)
+    {
+      ROS_DEBUG_NAMED("move_base", "Aborting on goal for being occupied by interacting action");
+      return;
+    }
+
     ROS_DEBUG_NAMED("move_base","In ROS goal callback, wrapping the PoseStamped in the action message and re-sending to the server.");
     move_base_msgs::MoveBaseActionGoal action_goal;
     action_goal.header.stamp = ros::Time::now();
