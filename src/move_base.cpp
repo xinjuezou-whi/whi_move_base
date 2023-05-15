@@ -287,17 +287,10 @@ namespace move_base {
   }
 
   void MoveBase::goalCB(const geometry_msgs::PoseStamped::ConstPtr& goal){
-    auto targetPose = *goal;
-    if (!handleInteracteState(targetPose))
-    {
-      ROS_DEBUG_NAMED("move_base", "Aborting on goal for being occupied by interacting action");
-      return;
-    }
-
     ROS_DEBUG_NAMED("move_base","In ROS goal callback, wrapping the PoseStamped in the action message and re-sending to the server.");
     move_base_msgs::MoveBaseActionGoal action_goal;
     action_goal.header.stamp = ros::Time::now();
-    action_goal.goal.target_pose = targetPose;
+    action_goal.goal.target_pose = *goal;
 
     action_goal_pub_.publish(action_goal);
   }
@@ -671,8 +664,7 @@ namespace move_base {
 
   void MoveBase::executeCb(const move_base_msgs::MoveBaseGoalConstPtr& move_base_goal)
   {
-    auto targetPose = move_base_goal->target_pose;
-    if (!handleInteracteState(targetPose))
+    if (!handleInteracteState(move_base_goal))
     {
       as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal for being occupied by interacting action");
       return;
@@ -683,7 +675,7 @@ namespace move_base {
       return;
     }
 
-    geometry_msgs::PoseStamped goal = goalToGlobalFrame(targetPose);
+    geometry_msgs::PoseStamped goal = goalToGlobalFrame(move_base_goal->target_pose);
 
     publishZeroVelocity();
     //we have a goal so start the planner
@@ -1234,36 +1226,50 @@ namespace move_base {
     return true;
   }
 
-  bool MoveBase::handleInteracteState(geometry_msgs::PoseStamped& TargetPose)
+  bool MoveBase::handleInteracteState(const move_base_msgs::MoveBaseGoalConstPtr& MovebaseGoal)
   {
     if (int_state_ == INT_BLOCKED)
     {
-      if (TargetPose.header.frame_id.find("block") == std::string::npos)
+      if (MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_NONE)
       {
         return false;
       }
       else
       {
-        int_state_ = TargetPose.header.frame_id.find("unblock") != std::string::npos ?
-          INT_NONE : INT_BLOCKED;
-        if (TargetPose.header.frame_id.find("_only") != std::string::npos)
+        if (MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_UNBLOCK ||
+          MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_UNBLOCK_ONLY)
+        {
+          int_state_ = INT_NONE;
+        }
+        else
+        {
+          int_state_ = INT_BLOCKED;
+        }
+        if (MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_BLOCK_ONLY ||
+          MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_UNBLOCK_ONLY)
         {
           return false;
         }
-        TargetPose.header.frame_id = "map";
       }
     }
     else
     {
-      if (TargetPose.header.frame_id.find("block") != std::string::npos)
+      if (MovebaseGoal->inter_type != move_base_msgs::MoveBaseGoal::INTERACTION_NONE)
       {
-        int_state_ = TargetPose.header.frame_id.find("unblock") != std::string::npos ?
-          INT_NONE : INT_BLOCKED;
-        if (TargetPose.header.frame_id.find("_only") != std::string::npos)
+        if (MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_UNBLOCK ||
+          MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_UNBLOCK_ONLY)
+        {
+          int_state_ = INT_NONE;
+        }
+        else
+        {
+          int_state_ = INT_BLOCKED;
+        }
+        if (MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_BLOCK_ONLY ||
+          MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_UNBLOCK_ONLY)
         {
           return false;
         }
-        TargetPose.header.frame_id = "map";
       }
     }
 

@@ -197,7 +197,7 @@ namespace move_base {
        */
       void wakePlanner(const ros::TimerEvent& event);
 
-      bool handleInteracteState(geometry_msgs::PoseStamped& TargetPose);
+      bool handleInteracteState(const move_base_msgs::MoveBaseGoalConstPtr& MovebaseGoal);
 
     private:
       tf2_ros::Buffer& tf_;
