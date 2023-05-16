@@ -716,50 +716,22 @@ namespace move_base {
         c_freq_change_ = false;
       }
 
-      if(as_->isPreemptRequested()){
-        if(as_->isNewGoalAvailable()){
-          //if we're active and a new goal is available, we'll accept it, but we won't shut anything down
-          move_base_msgs::MoveBaseGoal new_goal = *as_->acceptNewGoal();
+      if (as_->isPreemptRequested())
+      {
+        // other main difference to move_base:
+        // terminate execute loop as long as preempt is requested by new goal,
+        // otherwise the executeCb would not be called
+        // termination make sure the new goal will initiate executeCb to adapt the bypass mechanism
 
-          if(!isQuaternionValid(new_goal.target_pose.pose.orientation)){
-            as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because it was sent with an invalid quaternion");
-            return;
-          }
+        //if we've been preempted explicitly we need to shut things down
+        resetState();
 
-          goal = goalToGlobalFrame(new_goal.target_pose);
+        //notify the ActionServer that we've successfully preempted
+        ROS_DEBUG_NAMED("move_base","Move base preempting the current goal");
+        as_->setPreempted();
 
-          //we'll make sure that we reset our state for the next execution cycle
-          recovery_index_ = 0;
-          state_ = PLANNING;
-
-          //we have a new goal so make sure the planner is awake
-          lock.lock();
-          planner_goal_ = goal;
-          runPlanner_ = true;
-          planner_cond_.notify_one();
-          lock.unlock();
-
-          //publish the goal point to the visualizer
-          ROS_DEBUG_NAMED("move_base","move_base has received a goal of x: %.2f, y: %.2f", goal.pose.position.x, goal.pose.position.y);
-          current_goal_pub_.publish(goal);
-
-          //make sure to reset our timeouts and counters
-          last_valid_control_ = ros::Time::now();
-          last_valid_plan_ = ros::Time::now();
-          last_oscillation_reset_ = ros::Time::now();
-          planning_retries_ = 0;
-        }
-        else {
-          //if we've been preempted explicitly we need to shut things down
-          resetState();
-
-          //notify the ActionServer that we've successfully preempted
-          ROS_DEBUG_NAMED("move_base","Move base preempting the current goal");
-          as_->setPreempted();
-
-          //we'll actually return from execute after preempting
-          return;
-        }
+        //we'll actually return from execute after preempting
+        return;
       }
 
       //we also want to check if we've changed global frames because we need to transform our goal pose
@@ -1234,6 +1206,8 @@ namespace move_base {
 
   bool MoveBase::handleInteracteState(const move_base_msgs::MoveBaseGoalConstPtr& MovebaseGoal)
   {
+    // first difference to move_base:
+    // use interaction flag to bypass outside goals
     if (int_state_ == INT_BLOCKED)
     {
       if (MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_NONE)
