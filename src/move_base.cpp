@@ -191,6 +191,13 @@ namespace move_base {
     dsrv_ = new dynamic_reconfigure::Server<move_base::MoveBaseConfig>(ros::NodeHandle("~"));
     dynamic_reconfigure::Server<move_base::MoveBaseConfig>::CallbackType cb = [this](auto& config, auto level){ reconfigureCB(config, level); };
     dsrv_->setCallback(cb);
+
+    // motion state
+    std::string motionStateTopic;
+    private_nh.param("motion_state", motionStateTopic, std::string("motion_state"));
+    sub_state_= std::make_unique<ros::Subscriber>(
+      action_nh.subscribe<whi_interfaces::WhiMotionState>(motionStateTopic, 10,
+      std::bind(&MoveBase::callbackMotionState, this, std::placeholders::_1)));
   }
 
   void MoveBase::reconfigureCB(move_base::MoveBaseConfig &config, uint32_t level){
@@ -287,17 +294,21 @@ namespace move_base {
   }
 
   void MoveBase::goalCB(const geometry_msgs::PoseStamped::ConstPtr& goal){
-    auto targetPose = *goal;
-    if (!handleInteracteState(targetPose))
+    if (int_state_ == INT_BLOCKED)
     {
       ROS_DEBUG_NAMED("move_base", "Aborting on goal for being occupied by interacting action");
+      return;
+    }
+    if (is_remote_controlled_)
+    {
+      ROS_INFO_NAMED("move_base", "Aborting on goal for being in remote control mode");
       return;
     }
 
     ROS_DEBUG_NAMED("move_base","In ROS goal callback, wrapping the PoseStamped in the action message and re-sending to the server.");
     move_base_msgs::MoveBaseActionGoal action_goal;
     action_goal.header.stamp = ros::Time::now();
-    action_goal.goal.target_pose = targetPose;
+    action_goal.goal.target_pose = *goal;
 
     action_goal_pub_.publish(action_goal);
   }
@@ -671,10 +682,14 @@ namespace move_base {
 
   void MoveBase::executeCb(const move_base_msgs::MoveBaseGoalConstPtr& move_base_goal)
   {
-    auto targetPose = move_base_goal->target_pose;
-    if (!handleInteracteState(targetPose))
+    if (!handleInteracteState(move_base_goal))
     {
       as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal for being occupied by interacting action");
+      return;
+    }
+    if (is_remote_controlled_)
+    {
+      ROS_INFO_NAMED("move_base", "Aborting on goal for being in remote control mode");
       return;
     }
 
@@ -683,7 +698,7 @@ namespace move_base {
       return;
     }
 
-    geometry_msgs::PoseStamped goal = goalToGlobalFrame(targetPose);
+    geometry_msgs::PoseStamped goal = goalToGlobalFrame(move_base_goal->target_pose);
 
     publishZeroVelocity();
     //we have a goal so start the planner
@@ -718,50 +733,22 @@ namespace move_base {
         c_freq_change_ = false;
       }
 
-      if(as_->isPreemptRequested()){
-        if(as_->isNewGoalAvailable()){
-          //if we're active and a new goal is available, we'll accept it, but we won't shut anything down
-          move_base_msgs::MoveBaseGoal new_goal = *as_->acceptNewGoal();
+      if (as_->isPreemptRequested())
+      {
+        // other main difference to move_base:
+        // terminate execute loop as long as preempt is requested by new goal,
+        // otherwise the executeCb would not be called
+        // termination make sure the new goal will initiate executeCb to adapt the bypass mechanism
 
-          if(!isQuaternionValid(new_goal.target_pose.pose.orientation)){
-            as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because it was sent with an invalid quaternion");
-            return;
-          }
+        //if we've been preempted explicitly we need to shut things down
+        resetState();
 
-          goal = goalToGlobalFrame(new_goal.target_pose);
+        //notify the ActionServer that we've successfully preempted
+        ROS_DEBUG_NAMED("move_base","Move base preempting the current goal");
+        as_->setPreempted();
 
-          //we'll make sure that we reset our state for the next execution cycle
-          recovery_index_ = 0;
-          state_ = PLANNING;
-
-          //we have a new goal so make sure the planner is awake
-          lock.lock();
-          planner_goal_ = goal;
-          runPlanner_ = true;
-          planner_cond_.notify_one();
-          lock.unlock();
-
-          //publish the goal point to the visualizer
-          ROS_DEBUG_NAMED("move_base","move_base has received a goal of x: %.2f, y: %.2f", goal.pose.position.x, goal.pose.position.y);
-          current_goal_pub_.publish(goal);
-
-          //make sure to reset our timeouts and counters
-          last_valid_control_ = ros::Time::now();
-          last_valid_plan_ = ros::Time::now();
-          last_oscillation_reset_ = ros::Time::now();
-          planning_retries_ = 0;
-        }
-        else {
-          //if we've been preempted explicitly we need to shut things down
-          resetState();
-
-          //notify the ActionServer that we've successfully preempted
-          ROS_DEBUG_NAMED("move_base","Move base preempting the current goal");
-          as_->setPreempted();
-
-          //we'll actually return from execute after preempting
-          return;
-        }
+        //we'll actually return from execute after preempting
+        return;
       }
 
       //we also want to check if we've changed global frames because we need to transform our goal pose
@@ -1234,20 +1221,29 @@ namespace move_base {
     return true;
   }
 
-  bool MoveBase::handleInteracteState(geometry_msgs::PoseStamped& TargetPose)
+  bool MoveBase::handleInteracteState(const move_base_msgs::MoveBaseGoalConstPtr& MovebaseGoal)
   {
+    // first difference to move_base:
+    // use interaction flag to bypass outside goals
     if (int_state_ == INT_BLOCKED)
     {
-      if (TargetPose.header.frame_id.find("block") == std::string::npos)
+      if (MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_NONE)
       {
         return false;
       }
       else
       {
-        int_state_ = TargetPose.header.frame_id.find("unblock") != std::string::npos ?
-          INT_NONE : INT_BLOCKED;
-        TargetPose.header.frame_id = "map";
-        if (TargetPose.header.frame_id.find("_only") != std::string::npos)
+        if (MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_UNBLOCK ||
+          MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_UNBLOCK_ONLY)
+        {
+          int_state_ = INT_NONE;
+        }
+        else
+        {
+          int_state_ = INT_BLOCKED;
+        }
+        if (MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_BLOCK_ONLY ||
+          MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_UNBLOCK_ONLY)
         {
           return false;
         }
@@ -1255,12 +1251,19 @@ namespace move_base {
     }
     else
     {
-      if (TargetPose.header.frame_id.find("block") != std::string::npos &&
-        TargetPose.header.frame_id.find("unblock") == std::string::npos)
+      if (MovebaseGoal->inter_type != move_base_msgs::MoveBaseGoal::INTERACTION_NONE)
       {
-        TargetPose.header.frame_id = "map";
-        int_state_ == INT_BLOCKED;
-        if (TargetPose.header.frame_id.find("_only") != std::string::npos)
+        if (MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_UNBLOCK ||
+          MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_UNBLOCK_ONLY)
+        {
+          int_state_ = INT_NONE;
+        }
+        else
+        {
+          int_state_ = INT_BLOCKED;
+        }
+        if (MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_BLOCK_ONLY ||
+          MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_UNBLOCK_ONLY)
         {
           return false;
         }
@@ -1269,4 +1272,16 @@ namespace move_base {
 
     return true;
   }
+
+	void MoveBase::callbackMotionState(const whi_interfaces::WhiMotionState::ConstPtr& Msg)
+	{
+    if (Msg->state == whi_interfaces::WhiMotionState::STA_REMOTE)
+    {
+      is_remote_controlled_ = true;
+    }
+    else if (Msg->state == whi_interfaces::WhiMotionState::STA_AUTO)
+    {
+      is_remote_controlled_ = false;
+    }
+	}
 };

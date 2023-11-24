@@ -58,10 +58,8 @@ Changelog:
 #include <string>
 
 #include <ros/ros.h>
-
 #include <actionlib/server/simple_action_server.h>
 #include <move_base_msgs/MoveBaseAction.h>
-
 #include <nav_core/base_local_planner.h>
 #include <nav_core/base_global_planner.h>
 #include <nav_core/recovery_behavior.h>
@@ -69,12 +67,13 @@ Changelog:
 #include <costmap_2d/costmap_2d_ros.h>
 #include <costmap_2d/costmap_2d.h>
 #include <nav_msgs/GetPlan.h>
-
 #include <pluginlib/class_loader.hpp>
 #include <std_srvs/Empty.h>
-
 #include <dynamic_reconfigure/server.h>
-#include "move_base/MoveBaseConfig.h"
+// dynamic parameters configure
+#include "whi_move_base/MoveBaseConfig.h"
+
+#include "whi_interfaces/WhiMotionState.h"
 
 namespace move_base {
   //typedefs to help us out with the action server so that we don't hace to type so much
@@ -197,7 +196,8 @@ namespace move_base {
        */
       void wakePlanner(const ros::TimerEvent& event);
 
-      bool handleInteracteState(geometry_msgs::PoseStamped& TargetPose);
+      bool handleInteracteState(const move_base_msgs::MoveBaseGoalConstPtr& MovebaseGoal);
+      void callbackMotionState(const whi_interfaces::WhiMotionState::ConstPtr& Msg);
 
     private:
       tf2_ros::Buffer& tf_;
@@ -248,7 +248,6 @@ namespace move_base {
       geometry_msgs::PoseStamped planner_goal_;
       boost::thread* planner_thread_;
 
-
       boost::recursive_mutex configuration_mutex_;
       dynamic_reconfigure::Server<move_base::MoveBaseConfig> *dsrv_;
       
@@ -260,6 +259,8 @@ namespace move_base {
       bool new_global_plan_;
 
       InteractState int_state_{ INT_NONE };
+      std::unique_ptr<ros::Subscriber> sub_state_{ nullptr };
+      bool is_remote_controlled_{ false };
   };
 }
 #endif
