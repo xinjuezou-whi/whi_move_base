@@ -197,10 +197,7 @@ namespace move_base {
       void wakePlanner(const ros::TimerEvent& event);
 
       bool handleInteracteState(const move_base_msgs::MoveBaseGoalConstPtr& MovebaseGoal);
-<<<<<<< HEAD
       void callbackMotionState(const whi_interfaces::WhiMotionState::ConstPtr& Msg);
-=======
->>>>>>> 026c181692db51d4438ff7bc06c3ba2bcb46cf75
 
     private:
       tf2_ros::Buffer& tf_;
