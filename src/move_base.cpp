@@ -1273,8 +1273,8 @@ namespace move_base {
     return true;
   }
 
-	void MoveBase::callbackMotionState(const whi_interfaces::WhiMotionState::ConstPtr& Msg)
-	{
+  void MoveBase::callbackMotionState(const whi_interfaces::WhiMotionState::ConstPtr& Msg)
+  {
     if (Msg->state == whi_interfaces::WhiMotionState::STA_REMOTE)
     {
       is_remote_controlled_ = true;
@@ -1283,5 +1283,5 @@ namespace move_base {
     {
       is_remote_controlled_ = false;
     }
-	}
+  }
 };
