@@ -50,8 +50,8 @@ Changelog:
 int main(int argc, char** argv)
 {
   /// node version and copyright announcement
-	std::cout << "\nWHI move_base VERSION 00.07" << std::endl;
-	std::cout << "Copyright © 2023-2024 Wheel Hub Intelligent Co.,Ltd. All rights reserved\n" << std::endl;
+	std::cout << "\nWHI move_base VERSION 00.08" << std::endl;
+	std::cout << "Copyright © 2023-2025 Wheel Hub Intelligent Co.,Ltd. All rights reserved\n" << std::endl;
 
   ros::init(argc, argv, "move_base_node");
   tf2_ros::Buffer buffer(ros::Duration(10));

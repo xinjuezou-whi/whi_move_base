@@ -73,7 +73,7 @@ Changelog:
 // dynamic parameters configure
 #include "whi_move_base/MoveBaseConfig.h"
 
-#include "whi_interfaces/WhiMotionState.h"
+#include "whi_interfaces/WhiRcState.h"
 
 namespace move_base {
   //typedefs to help us out with the action server so that we don't hace to type so much
@@ -197,7 +197,7 @@ namespace move_base {
       void wakePlanner(const ros::TimerEvent& event);
 
       bool handleInteracteState(const move_base_msgs::MoveBaseGoalConstPtr& MovebaseGoal);
-      void callbackMotionState(const whi_interfaces::WhiMotionState::ConstPtr& Msg);
+      void callbackRcState(const whi_interfaces::WhiRcState::ConstPtr& Msg);
 
     private:
       tf2_ros::Buffer& tf_;

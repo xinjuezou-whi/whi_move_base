@@ -192,12 +192,12 @@ namespace move_base {
     dynamic_reconfigure::Server<move_base::MoveBaseConfig>::CallbackType cb = [this](auto& config, auto level){ reconfigureCB(config, level); };
     dsrv_->setCallback(cb);
 
-    // motion state
-    std::string motionStateTopic;
-    private_nh.param("motion_state", motionStateTopic, std::string("motion_state"));
+    // rc state
+    std::string rcStateTopic;
+    private_nh.param("rc_state", rcStateTopic, std::string("rc_state"));
     sub_state_= std::make_unique<ros::Subscriber>(
-      action_nh.subscribe<whi_interfaces::WhiMotionState>(motionStateTopic, 10,
-      std::bind(&MoveBase::callbackMotionState, this, std::placeholders::_1)));
+      action_nh.subscribe<whi_interfaces::WhiRcState>(rcStateTopic, 10,
+      std::bind(&MoveBase::callbackRcState, this, std::placeholders::_1)));
   }
 
   void MoveBase::reconfigureCB(move_base::MoveBaseConfig &config, uint32_t level){
@@ -1273,13 +1273,13 @@ namespace move_base {
     return true;
   }
 
-  void MoveBase::callbackMotionState(const whi_interfaces::WhiMotionState::ConstPtr& Msg)
+  void MoveBase::callbackRcState(const whi_interfaces::WhiRcState::ConstPtr& Msg)
   {
-    if (Msg->state == whi_interfaces::WhiMotionState::STA_REMOTE)
+    if (Msg->state == whi_interfaces::WhiRcState::STA_REMOTE)
     {
       is_remote_controlled_ = true;
     }
-    else if (Msg->state == whi_interfaces::WhiMotionState::STA_AUTO)
+    else if (Msg->state == whi_interfaces::WhiRcState::STA_AUTO)
     {
       is_remote_controlled_ = false;
     }
