@@ -192,12 +192,17 @@ namespace move_base {
     dynamic_reconfigure::Server<move_base::MoveBaseConfig>::CallbackType cb = [this](auto& config, auto level){ reconfigureCB(config, level); };
     dsrv_->setCallback(cb);
 
-    // rc state
+    /// whi params
+    // rc topic
     std::string rcStateTopic;
     private_nh.param("rc_state", rcStateTopic, std::string("rc_state"));
     sub_state_= std::make_unique<ros::Subscriber>(
       action_nh.subscribe<whi_interfaces::WhiRcState>(rcStateTopic, 10,
       std::bind(&MoveBase::callbackRcState, this, std::placeholders::_1)));
+    // pattern registration
+    private_nh.param("align_pattern", align_pattern_, false);
+    private_nh.param("registration_action", registration_action_, std::string("registration_action"));
+    private_nh.param("registration_max_try", pose_registration_max_, 3);
   }
 
   void MoveBase::reconfigureCB(move_base::MoveBaseConfig &config, uint32_t level){
@@ -733,22 +738,50 @@ namespace move_base {
         c_freq_change_ = false;
       }
 
-      if (as_->isPreemptRequested())
-      {
-        // other main difference to move_base:
-        // terminate execute loop as long as preempt is requested by new goal,
-        // otherwise the executeCb would not be called
-        // termination make sure the new goal will initiate executeCb to adapt the bypass mechanism
+      if(as_->isPreemptRequested()){
+        if(as_->isNewGoalAvailable()){
+          //if we're active and a new goal is available, we'll accept it, but we won't shut anything down
+          move_base_msgs::MoveBaseGoal new_goal = *as_->acceptNewGoal();
 
-        //if we've been preempted explicitly we need to shut things down
-        resetState();
+          if(!isQuaternionValid(new_goal.target_pose.pose.orientation)){
+            as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because it was sent with an invalid quaternion");
+            return;
+          }
 
-        //notify the ActionServer that we've successfully preempted
-        ROS_DEBUG_NAMED("move_base","Move base preempting the current goal");
-        as_->setPreempted();
+          goal = goalToGlobalFrame(new_goal.target_pose);
 
-        //we'll actually return from execute after preempting
-        return;
+          //we'll make sure that we reset our state for the next execution cycle
+          recovery_index_ = 0;
+          state_ = PLANNING;
+
+          //we have a new goal so make sure the planner is awake
+          lock.lock();
+          planner_goal_ = goal;
+          runPlanner_ = true;
+          planner_cond_.notify_one();
+          lock.unlock();
+
+          //publish the goal point to the visualizer
+          ROS_DEBUG_NAMED("move_base","move_base has received a goal of x: %.2f, y: %.2f", goal.pose.position.x, goal.pose.position.y);
+          current_goal_pub_.publish(goal);
+
+          //make sure to reset our timeouts and counters
+          last_valid_control_ = ros::Time::now();
+          last_valid_plan_ = ros::Time::now();
+          last_oscillation_reset_ = ros::Time::now();
+          planning_retries_ = 0;
+        }
+        else {
+          //if we've been preempted explicitly we need to shut things down
+          resetState();
+
+          //notify the ActionServer that we've successfully preempted
+          ROS_DEBUG_NAMED("move_base","Move base preempting the current goal");
+          as_->setPreempted();
+
+          //we'll actually return from execute after preempting
+          return;
+        }
       }
 
       //we also want to check if we've changed global frames because we need to transform our goal pose
@@ -900,16 +933,59 @@ namespace move_base {
 
         //check to see if we've reached our goal
         if(tc_->isGoalReached()){
-          ROS_DEBUG_NAMED("move_base","Goal reached!");
-          resetState();
+          if (align_pattern_)
+          {
+            bool res = false;
+            //disable the planner thread
+            boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
+            runPlanner_ = false;
+            lock.unlock();
 
-          //disable the planner thread
-          boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
-          runPlanner_ = false;
-          lock.unlock();
+            if (registration_state_ == REGIST_STA_NONE)
+            {
+              setPoseRegistrationGoal(goal);
+              registration_state_ = REGIST_STA_PROCEEDING; // guarantee that no extra re-entry
+            }
+            else if (registration_state_ == REGIST_STA_DONE)
+            {
+              ROS_DEBUG_NAMED("move_base","Goal reached!");
+              resetState();
 
-          as_->setSucceeded(move_base_msgs::MoveBaseResult(), "Goal reached.");
-          return true;
+              as_->setSucceeded(move_base_msgs::MoveBaseResult(), "Goal reached.");
+              res = true;
+            }
+            else if (registration_state_ == REGIST_STA_ABORTED)
+            {
+              if (pose_registration_tried_count_ < pose_registration_max_)
+              {
+                setPoseRegistrationGoal(goal);
+                registration_state_ = REGIST_STA_PROCEEDING; // guarantee that no extra re-entry
+              }
+              else
+              {
+                ROS_DEBUG_NAMED("move_base","Goal reached!");
+                resetState();
+
+                as_->setSucceeded(move_base_msgs::MoveBaseResult(), "Goal reached.");
+                res = true;
+              }
+            }
+
+            return res;
+          }
+          else
+          {
+            ROS_DEBUG_NAMED("move_base","Goal reached!");
+            resetState();
+
+            //disable the planner thread
+            boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
+            runPlanner_ = false;
+            lock.unlock();
+
+            as_->setSucceeded(move_base_msgs::MoveBaseResult(), "Goal reached.");
+            return true;
+          }
         }
 
         //check for an oscillation condition
@@ -1176,6 +1252,10 @@ namespace move_base {
       planner_costmap_ros_->stop();
       controller_costmap_ros_->stop();
     }
+
+    // reset registration state
+    registration_state_ = REGIST_STA_NONE;
+    pose_registration_tried_count_ = 0;
   }
 
   bool MoveBase::getRobotPose(geometry_msgs::PoseStamped& global_pose, costmap_2d::Costmap2DROS* costmap)
@@ -1283,5 +1363,57 @@ namespace move_base {
     {
       is_remote_controlled_ = false;
     }
+  }
+
+  bool MoveBase::setPoseRegistrationGoal(const geometry_msgs::PoseStamped& Goal)
+  {
+    if (!pose_reg_client_)
+    {
+      pose_reg_client_ = std::make_unique<PoseRegClient>(registration_action_, true);
+    }
+
+    // wait for the action server to come up
+    ROS_INFO("Waiting for the pose_registration action server to come up");
+    while (!pose_reg_client_->waitForServer(ros::Duration(1.0)))
+    {
+      printf("can't set the goal to pose_registration, please check if the action server is on\n");
+      return false;
+    }
+
+    whi_interfaces::PoseRegistrationGoal goalMsg;
+    goalMsg.target_pose = Goal;
+
+    pose_reg_client_->sendGoal(goalMsg,
+      std::bind(&MoveBase::callbackPoseRegGoalDone, this, std::placeholders::_1, std::placeholders::_2),
+      std::bind(&MoveBase::callbackPoseRegGoalActive, this),
+      std::bind(&MoveBase::callbackPoseRegGoalFeedback, this, std::placeholders::_1));
+
+    ++pose_registration_tried_count_;
+
+    return true;
+  }
+
+  void MoveBase::callbackPoseRegGoalDone(const actionlib::SimpleClientGoalState& State,
+          const whi_interfaces::PoseRegistrationResultConstPtr& Result)
+  {
+    if (State.state_ == actionlib::SimpleClientGoalState::SUCCEEDED)
+    {
+      registration_state_ = REGIST_STA_DONE;
+    }
+    else if (State.state_ == actionlib::SimpleClientGoalState::ABORTED)
+    {
+      registration_state_ = REGIST_STA_ABORTED;
+    }
+  }
+
+  void MoveBase::callbackPoseRegGoalActive()
+  {
+    registration_state_ = REGIST_STA_PROCEEDING;
+  }
+
+  void MoveBase::callbackPoseRegGoalFeedback(
+      const whi_interfaces::PoseRegistrationFeedbackConstPtr& Feedback)
+  {
+    registration_state_ = REGIST_STA_PROCEEDING;
   }
 };

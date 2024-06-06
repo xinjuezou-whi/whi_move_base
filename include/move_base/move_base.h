@@ -58,8 +58,10 @@ Changelog:
 #include <string>
 
 #include <ros/ros.h>
+
 #include <actionlib/server/simple_action_server.h>
 #include <move_base_msgs/MoveBaseAction.h>
+
 #include <nav_core/base_local_planner.h>
 #include <nav_core/base_global_planner.h>
 #include <nav_core/recovery_behavior.h>
@@ -67,13 +69,15 @@ Changelog:
 #include <costmap_2d/costmap_2d_ros.h>
 #include <costmap_2d/costmap_2d.h>
 #include <nav_msgs/GetPlan.h>
+
 #include <pluginlib/class_loader.hpp>
 #include <std_srvs/Empty.h>
-#include <dynamic_reconfigure/server.h>
-// dynamic parameters configure
-#include "whi_move_base/MoveBaseConfig.h"
 
-#include "whi_interfaces/WhiRcState.h"
+#include <dynamic_reconfigure/server.h>
+#include "whi_move_base/MoveBaseConfig.h" // dynamic parameters configure
+#include <whi_interfaces/WhiRcState.h>
+#include <whi_interfaces/PoseRegistrationAction.h>
+#include <actionlib/client/simple_action_client.h>
 
 namespace move_base {
   //typedefs to help us out with the action server so that we don't hace to type so much
@@ -198,6 +202,11 @@ namespace move_base {
 
       bool handleInteracteState(const move_base_msgs::MoveBaseGoalConstPtr& MovebaseGoal);
       void callbackRcState(const whi_interfaces::WhiRcState::ConstPtr& Msg);
+      bool setPoseRegistrationGoal(const geometry_msgs::PoseStamped& Goal);
+      void callbackPoseRegGoalDone(const actionlib::SimpleClientGoalState& State,
+            const whi_interfaces::PoseRegistrationResultConstPtr& Result);
+	    void callbackPoseRegGoalActive();
+	    void callbackPoseRegGoalFeedback(const whi_interfaces::PoseRegistrationFeedbackConstPtr& Feedback);
 
     private:
       tf2_ros::Buffer& tf_;
@@ -248,6 +257,7 @@ namespace move_base {
       geometry_msgs::PoseStamped planner_goal_;
       boost::thread* planner_thread_;
 
+
       boost::recursive_mutex configuration_mutex_;
       dynamic_reconfigure::Server<move_base::MoveBaseConfig> *dsrv_;
       
@@ -261,6 +271,15 @@ namespace move_base {
       InteractState int_state_{ INT_NONE };
       std::unique_ptr<ros::Subscriber> sub_state_{ nullptr };
       bool is_remote_controlled_{ false };
+      bool align_pattern_{ false };
+      std::string registration_action_{ "pose_registration" };
+      using PoseRegClient = actionlib::SimpleActionClient<whi_interfaces::PoseRegistrationAction>;
+      std::unique_ptr<PoseRegClient> pose_reg_client_{ nullptr };
+      enum RegistrationState { REGIST_STA_NONE = 0, REGIST_STA_PROCEEDING, REGIST_STA_DONE, REGIST_STA_ABORTED };
+      int registration_state_{ REGIST_STA_NONE };
+      int pose_registration_max_{ 3 };
+      int pose_registration_tried_count_{ 0 };
   };
-}
+};
 #endif
+
