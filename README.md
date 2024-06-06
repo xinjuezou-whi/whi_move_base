@@ -27,3 +27,8 @@ else
         move_base_msgs::MoveBaseGoal::INTERACTION_UNBLOCK_ONLY;
 }
 ```
+
+## State machine
+Refer to belowing SM logic for further extended functions:
+
+![move_base_state_machine drawio](https://github.com/xinjuezou-whi/whi_move_base/assets/72239958/7079ac98-8f3f-4666-a18c-3f492a1de061)
