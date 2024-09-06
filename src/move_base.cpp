@@ -203,6 +203,7 @@ namespace move_base {
     private_nh.param("align_pattern", align_pattern_, false);
     private_nh.param("registration_action", registration_action_, std::string("registration_action"));
     private_nh.param("registration_max_try", pose_registration_max_, 3);
+    check_newgoal_srv_ = private_nh.advertiseService("check_newgoal", &MoveBase::onServiceNewGoal, this);
   }
 
   void MoveBase::reconfigureCB(move_base::MoveBaseConfig &config, uint32_t level){
@@ -301,6 +302,7 @@ namespace move_base {
   void MoveBase::goalCB(const geometry_msgs::PoseStamped::ConstPtr& goal){
     if (int_state_ == INT_BLOCKED)
     {
+      ROS_INFO("in goalCB, Aborting on goal for being occupied by interacting action");
       ROS_DEBUG_NAMED("move_base", "Aborting on goal for being occupied by interacting action");
       return;
     }
@@ -689,6 +691,7 @@ namespace move_base {
   {
     if (!handleInteracteState(move_base_goal))
     {
+      ROS_INFO("in executeCb, Aborting on goal for being occupied by interacting action");
       as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal for being occupied by interacting action");
       return;
     }
@@ -702,9 +705,7 @@ namespace move_base {
       as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because it was sent with an invalid quaternion");
       return;
     }
-
     geometry_msgs::PoseStamped goal = goalToGlobalFrame(move_base_goal->target_pose);
-
     publishZeroVelocity();
     //we have a goal so start the planner
     boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
@@ -763,6 +764,7 @@ namespace move_base {
 
           //publish the goal point to the visualizer
           ROS_DEBUG_NAMED("move_base","move_base has received a goal of x: %.2f, y: %.2f", goal.pose.position.x, goal.pose.position.y);
+          ROS_INFO("move_base :move_base has received a goal of x: %.2f, y: %.2f", goal.pose.position.x, goal.pose.position.y);
           current_goal_pub_.publish(goal);
 
           //make sure to reset our timeouts and counters
@@ -801,6 +803,7 @@ namespace move_base {
 
         //publish the goal point to the visualizer
         ROS_DEBUG_NAMED("move_base","The global frame for move_base has changed, new frame: %s, new goal position x: %.2f, y: %.2f", goal.header.frame_id.c_str(), goal.pose.position.x, goal.pose.position.y);
+        ROS_INFO("move_base: The global frame for move_base has changed, new frame: %s, new goal position x: %.2f, y: %.2f", goal.header.frame_id.c_str(), goal.pose.position.x, goal.pose.position.y);
         current_goal_pub_.publish(goal);
 
         //make sure to reset our timeouts and counters
@@ -925,22 +928,15 @@ namespace move_base {
           planner_cond_.notify_one();
         }
         ROS_DEBUG_NAMED("move_base","Waiting for plan, in the planning state.");
+        ROS_INFO("move_base , Waiting for plan, in the planning state.");
         break;
 
       //if we're controlling, we'll attempt to find valid velocity commands
       case CONTROLLING:
-      {
         ROS_DEBUG_NAMED("move_base","In controlling state.");
 
         //check to see if we've reached our goal
-        bool goalReached = tc_->isGoalReached();
-        if (registration_state_ == REGIST_STA_PROCEEDING ||
-            registration_state_ == REGIST_STA_DONE ||
-            registration_state_ == REGIST_STA_ABORTED)
-        {
-          goalReached = true;
-        }
-        if (goalReached){
+        if(tc_->isGoalReached()){
           if (align_pattern_)
           {
             bool res = false;
@@ -951,7 +947,7 @@ namespace move_base {
 
             if (registration_state_ == REGIST_STA_NONE)
             {
-              setPoseRegistrationGoal(goal);
+              setPoseRegistrationGoal(goal,false);
               registration_state_ = REGIST_STA_PROCEEDING; // guarantee that no extra re-entry
             }
             else if (registration_state_ == REGIST_STA_DONE)
@@ -966,7 +962,7 @@ namespace move_base {
             {
               if (pose_registration_tried_count_ < pose_registration_max_)
               {
-                setPoseRegistrationGoal(goal);
+                setPoseRegistrationGoal(goal,false);
                 registration_state_ = REGIST_STA_PROCEEDING; // guarantee that no extra re-entry
               }
               else
@@ -1045,7 +1041,7 @@ namespace move_base {
         }
 
         break;
-      }
+
       //we'll try to clear out space with any user-provided recovery behaviors
       case CLEARING:
         ROS_DEBUG_NAMED("move_base","In clearing/recovery state");
@@ -1313,7 +1309,16 @@ namespace move_base {
   {
     // first difference to move_base:
     // use interaction flag to bypass outside goals
-    if (int_state_ == INT_BLOCKED)
+    newgoal_flag_ = false;
+    ROS_INFO("in handleInteracteState,MovebaseGoal->inter_type = %d ",MovebaseGoal->inter_type);
+    if (int_state_ == INT_WAIT)
+    {
+      ROS_INFO("in handleInteracteState  int_state_ == INT_WAIT ,MovebaseGoal->inter_type = %d ",MovebaseGoal->inter_type);
+      newgoal_flag_ = true;
+      int_state_ = INT_NONE;
+      return false;
+    }
+    else if (int_state_ == INT_BLOCKED)
     {
       if (MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_NONE)
       {
@@ -1325,6 +1330,12 @@ namespace move_base {
           MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_UNBLOCK_ONLY)
         {
           int_state_ = INT_NONE;
+        }
+        else if (MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_WAITBLOCK)
+        {
+          ROS_INFO("int_state_ == INT_BLOCKED ,set int_state_ = INT_WAIT");
+          int_state_ = INT_WAIT;
+          return false;
         }
         else
         {
@@ -1346,6 +1357,12 @@ namespace move_base {
         {
           int_state_ = INT_NONE;
         }
+        else if (MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_WAITBLOCK)
+        {
+          ROS_INFO("int_state_ == INT_NONE ,set int_state_ = INT_WAIT");
+          int_state_ = INT_WAIT;
+          return false;
+        }        
         else
         {
           int_state_ = INT_BLOCKED;
@@ -1373,7 +1390,7 @@ namespace move_base {
     }
   }
 
-  bool MoveBase::setPoseRegistrationGoal(const geometry_msgs::PoseStamped& Goal)
+  bool MoveBase::setPoseRegistrationGoal(const geometry_msgs::PoseStamped& Goal, bool Waitflag)
   {
     if (!pose_reg_client_)
     {
@@ -1390,6 +1407,10 @@ namespace move_base {
 
     whi_interfaces::PoseRegistrationGoal goalMsg;
     goalMsg.target_pose = Goal;
+    if (Waitflag)
+    {
+      goalMsg.target_pose.header.frame_id = "charging_logic"; // for charge to walk
+    }
 
     pose_reg_client_->sendGoal(goalMsg,
       std::bind(&MoveBase::callbackPoseRegGoalDone, this, std::placeholders::_1, std::placeholders::_2),
@@ -1424,4 +1445,21 @@ namespace move_base {
   {
     registration_state_ = REGIST_STA_PROCEEDING;
   }
+
+  bool MoveBase::onServiceNewGoal(std_srvs::SetBool::Request& Req, std_srvs::SetBool::Response& Res)
+  {
+    if (Req.data)
+    {
+      if (newgoal_flag_)
+      {
+        Res.success = true;
+      }
+      else
+      {
+        Res.success = false;
+      }
+    }
+    return true;
+  }
+
 };

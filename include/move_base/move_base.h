@@ -78,7 +78,7 @@ Changelog:
 #include <whi_interfaces/WhiRcState.h>
 #include <whi_interfaces/PoseRegistrationAction.h>
 #include <actionlib/client/simple_action_client.h>
-
+#include "std_srvs/SetBool.h"
 namespace move_base {
   //typedefs to help us out with the action server so that we don't hace to type so much
   typedef actionlib::SimpleActionServer<move_base_msgs::MoveBaseAction> MoveBaseActionServer;
@@ -99,7 +99,8 @@ namespace move_base {
   enum InteractState
   {
     INT_NONE =0,
-    INT_BLOCKED
+    INT_BLOCKED,
+    INT_WAIT
   };
 
   /**
@@ -202,11 +203,12 @@ namespace move_base {
 
       bool handleInteracteState(const move_base_msgs::MoveBaseGoalConstPtr& MovebaseGoal);
       void callbackRcState(const whi_interfaces::WhiRcState::ConstPtr& Msg);
-      bool setPoseRegistrationGoal(const geometry_msgs::PoseStamped& Goal);
+      bool setPoseRegistrationGoal(const geometry_msgs::PoseStamped& Goal, bool waitflag);
       void callbackPoseRegGoalDone(const actionlib::SimpleClientGoalState& State,
             const whi_interfaces::PoseRegistrationResultConstPtr& Result);
 	    void callbackPoseRegGoalActive();
 	    void callbackPoseRegGoalFeedback(const whi_interfaces::PoseRegistrationFeedbackConstPtr& Feedback);
+      bool onServiceNewGoal(std_srvs::SetBool::Request& Req, std_srvs::SetBool::Response& Res);
 
     private:
       tf2_ros::Buffer& tf_;
@@ -279,6 +281,8 @@ namespace move_base {
       int registration_state_{ REGIST_STA_NONE };
       int pose_registration_max_{ 3 };
       int pose_registration_tried_count_{ 0 };
+      ros::ServiceServer check_newgoal_srv_;
+      bool newgoal_flag_{ false };
   };
 };
 #endif
