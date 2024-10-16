@@ -947,7 +947,7 @@ namespace move_base {
 
             if (registration_state_ == REGIST_STA_NONE)
             {
-              setPoseRegistrationGoal(goal,false);
+              setPoseRegistrationGoal(goal, false);
               registration_state_ = REGIST_STA_PROCEEDING; // guarantee that no extra re-entry
             }
             else if (registration_state_ == REGIST_STA_DONE)
@@ -962,7 +962,7 @@ namespace move_base {
             {
               if (pose_registration_tried_count_ < pose_registration_max_)
               {
-                setPoseRegistrationGoal(goal,false);
+                setPoseRegistrationGoal(goal, false);
                 registration_state_ = REGIST_STA_PROCEEDING; // guarantee that no extra re-entry
               }
               else
@@ -1310,10 +1310,10 @@ namespace move_base {
     // first difference to move_base:
     // use interaction flag to bypass outside goals
     newgoal_flag_ = false;
-    ROS_INFO("in handleInteracteState,MovebaseGoal->inter_type = %d ",MovebaseGoal->inter_type);
+    ROS_INFO("in handleInteracteState, MovebaseGoal->inter_type = %d", MovebaseGoal->inter_type);
     if (int_state_ == INT_WAIT)
     {
-      ROS_INFO("in handleInteracteState  int_state_ == INT_WAIT ,MovebaseGoal->inter_type = %d ",MovebaseGoal->inter_type);
+      ROS_INFO("in handleInteracteState int_state_ == INT_WAIT, MovebaseGoal->inter_type = %d", MovebaseGoal->inter_type);
       newgoal_flag_ = true;
       int_state_ = INT_NONE;
       return false;
@@ -1359,7 +1359,7 @@ namespace move_base {
         }
         else if (MovebaseGoal->inter_type == move_base_msgs::MoveBaseGoal::INTERACTION_WAITBLOCK)
         {
-          ROS_INFO("int_state_ == INT_NONE ,set int_state_ = INT_WAIT");
+          ROS_INFO("int_state_ == INT_NONE, set int_state_ = INT_WAIT");
           int_state_ = INT_WAIT;
           return false;
         }        
