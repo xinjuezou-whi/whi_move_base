@@ -2,7 +2,7 @@
 Provides an implementation of an action that, given an interaction state, will attempt to reach the target without being interrupted by other goals
 
 ## Dependency
-In order to handle bypassing goals that are requested during interaction process, whi_move_base relies on the interaction type in MoveBaseGoal message. There defined [five interaction types](https://github.com/xinjuezou-whi/whi_move_base_msgs)
+To handle bypassing goals requested during the interaction, whi_move_base relies on the interaction type in the MoveBaseGoal message. Refer to the [defined interaction types](https://github.com/xinjuezou-whi/whi_move_base_msgs)
 
 Clone the whi_move_base_msgs first:
 ```
@@ -10,7 +10,7 @@ git clone https://github.com/xinjuezou-whi/whi_move_base_msgs.git
 ```
 
 ## Client request
-Following are snippets of client goal request, for an example:
+Following are snippets of client goal request, for example:
 ```
 move_base_msgs::MoveBaseGoal goalMsg;
 goalMsg.target_pose.header.frame_id = "map";
@@ -29,6 +29,6 @@ else
 ```
 
 ## State machine
-Refer to belowing SM logic for further extended functions:
+Refer to the SM logic below for further extended functions:
 
 ![move_base_state_machine drawio](https://github.com/xinjuezou-whi/whi_move_base/assets/72239958/7079ac98-8f3f-4666-a18c-3f492a1de061)
