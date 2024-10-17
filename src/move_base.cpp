@@ -203,7 +203,7 @@ namespace move_base {
     private_nh.param("align_pattern", align_pattern_, false);
     private_nh.param("registration_action", registration_action_, std::string("registration_action"));
     private_nh.param("registration_max_try", pose_registration_max_, 3);
-    check_newgoal_srv_ = private_nh.advertiseService("check_newgoal", &MoveBase::onServiceNewGoal, this);
+    new_arrived_srv_ = private_nh.advertiseService("new_arrived", &MoveBase::onServiceNewGoalArrived, this);
   }
 
   void MoveBase::reconfigureCB(move_base::MoveBaseConfig &config, uint32_t level){
@@ -1310,12 +1310,12 @@ namespace move_base {
   {
     // first difference to move_base:
     // use interaction flag to bypass outside goals
-    newgoal_flag_ = false;
+    new_goal_arrived_ = false;
     ROS_INFO("in handleInteracteState, MovebaseGoal->inter_type = %d", MovebaseGoal->inter_type);
     if (int_state_ == INT_WAIT)
     {
       ROS_INFO("in handleInteracteState int_state_ == INT_WAIT, MovebaseGoal->inter_type = %d", MovebaseGoal->inter_type);
-      newgoal_flag_ = true;
+      new_goal_arrived_ = true;
       int_state_ = INT_NONE;
       return false;
     }
@@ -1443,9 +1443,9 @@ namespace move_base {
     registration_state_ = REGIST_STA_PROCEEDING;
   }
 
-  bool MoveBase::onServiceNewGoal(std_srvs::SetBool::Request& Req, std_srvs::SetBool::Response& Res)
+  bool MoveBase::onServiceNewGoalArrived(std_srvs::SetBool::Request& Req, std_srvs::SetBool::Response& Res)
   {
-    Res.success = newgoal_flag_;
+    Res.success = new_goal_arrived_;
     return true;
   }
 };

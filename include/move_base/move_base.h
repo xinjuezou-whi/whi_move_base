@@ -208,7 +208,7 @@ namespace move_base {
             const whi_interfaces::PoseRegistrationResultConstPtr& Result);
 	    void callbackPoseRegGoalActive();
 	    void callbackPoseRegGoalFeedback(const whi_interfaces::PoseRegistrationFeedbackConstPtr& Feedback);
-      bool onServiceNewGoal(std_srvs::SetBool::Request& Req, std_srvs::SetBool::Response& Res);
+      bool onServiceNewGoalArrived(std_srvs::SetBool::Request& Req, std_srvs::SetBool::Response& Res);
 
     private:
       tf2_ros::Buffer& tf_;
@@ -281,8 +281,8 @@ namespace move_base {
       int registration_state_{ REGIST_STA_NONE };
       int pose_registration_max_{ 3 };
       int pose_registration_tried_count_{ 0 };
-      ros::ServiceServer check_newgoal_srv_;
-      bool newgoal_flag_{ false };
+      ros::ServiceServer new_arrived_srv_;
+      bool new_goal_arrived_{ false };
   };
 };
 #endif
