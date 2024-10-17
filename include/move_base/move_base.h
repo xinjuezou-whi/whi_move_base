@@ -203,7 +203,7 @@ namespace move_base {
 
       bool handleInteracteState(const move_base_msgs::MoveBaseGoalConstPtr& MovebaseGoal);
       void callbackRcState(const whi_interfaces::WhiRcState::ConstPtr& Msg);
-      bool setPoseRegistrationGoal(const geometry_msgs::PoseStamped& Goal, bool waitflag);
+      bool setPoseRegistrationGoal(const geometry_msgs::PoseStamped& Goal);
       void callbackPoseRegGoalDone(const actionlib::SimpleClientGoalState& State,
             const whi_interfaces::PoseRegistrationResultConstPtr& Result);
 	    void callbackPoseRegGoalActive();
