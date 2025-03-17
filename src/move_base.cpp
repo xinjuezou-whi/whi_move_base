@@ -946,7 +946,7 @@ namespace move_base {
             runPlanner_ = false;
             lock.unlock();
 
-            if (registration_state_ == REGIST_STA_NONE)
+            if (registration_state_ == REGIST_STA_NONE || registration_state_ == REGIST_STA_REQUISTED_NONE)
             {
               setPoseRegistrationGoal(goal);
               registration_state_ = REGIST_STA_PROCEEDING; // guarantee that no extra re-entry
@@ -990,6 +990,23 @@ namespace move_base {
 
             as_->setSucceeded(move_base_msgs::MoveBaseResult(), "Goal reached.");
             return true;
+          }
+        }
+        else
+        {
+          if (registration_state_ == REGIST_STA_NONE)
+          {
+            setPoseRegistrationGoal(goal, "plan_start");
+            registration_state_ = REGIST_STA_PROCEEDING; // guarantee that no extra re-entry
+            return false;
+          }
+          else if (registration_state_ == REGIST_STA_PROCEEDING)
+          {
+            return false;
+          }
+          else if (registration_state_ == REGIST_STA_DONE || registration_state_ == REGIST_STA_ABORTED)
+          {
+            resetRegistrationState(REGIST_STA_REQUISTED_NONE);
           }
         }
 
@@ -1258,9 +1275,7 @@ namespace move_base {
       controller_costmap_ros_->stop();
     }
 
-    // reset registration state
-    registration_state_ = REGIST_STA_NONE;
-    pose_registration_tried_count_ = 0;
+    resetRegistrationState(REGIST_STA_NONE);
   }
 
   bool MoveBase::getRobotPose(geometry_msgs::PoseStamped& global_pose, costmap_2d::Costmap2DROS* costmap)
@@ -1391,7 +1406,15 @@ namespace move_base {
     }
   }
 
-  bool MoveBase::setPoseRegistrationGoal(const geometry_msgs::PoseStamped& Goal)
+  void MoveBase::resetRegistrationState(int State)
+  {
+    // reset registration state
+    registration_state_ = State;
+    pose_registration_tried_count_ = 0;
+  }
+
+  bool MoveBase::setPoseRegistrationGoal(const geometry_msgs::PoseStamped& Goal,
+    const std::string& FrameID/* = std::string()*/)
   {
     if (!pose_reg_client_)
     {
@@ -1408,6 +1431,7 @@ namespace move_base {
 
     whi_interfaces::PoseRegistrationGoal goalMsg;
     goalMsg.target_pose = Goal;
+    goalMsg.target_pose.header.frame_id = FrameID;
 
     pose_reg_client_->sendGoal(goalMsg,
       std::bind(&MoveBase::callbackPoseRegGoalDone, this, std::placeholders::_1, std::placeholders::_2),

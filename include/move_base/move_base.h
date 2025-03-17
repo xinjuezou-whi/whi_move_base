@@ -203,7 +203,9 @@ namespace move_base {
 
       bool handleInteracteState(const move_base_msgs::MoveBaseGoalConstPtr& MovebaseGoal);
       void callbackRcState(const whi_interfaces::WhiRcState::ConstPtr& Msg);
-      bool setPoseRegistrationGoal(const geometry_msgs::PoseStamped& Goal);
+      void resetRegistrationState(int State);
+      bool setPoseRegistrationGoal(const geometry_msgs::PoseStamped& Goal,
+        const std::string& FrameID = std::string());
       void callbackPoseRegGoalDone(const actionlib::SimpleClientGoalState& State,
             const whi_interfaces::PoseRegistrationResultConstPtr& Result);
 	    void callbackPoseRegGoalActive();
@@ -277,7 +279,7 @@ namespace move_base {
       std::string registration_action_{ "pose_registration" };
       using PoseRegClient = actionlib::SimpleActionClient<whi_interfaces::PoseRegistrationAction>;
       std::unique_ptr<PoseRegClient> pose_reg_client_{ nullptr };
-      enum RegistrationState { REGIST_STA_NONE = 0, REGIST_STA_PROCEEDING, REGIST_STA_DONE, REGIST_STA_ABORTED };
+      enum RegistrationState { REGIST_STA_NONE = 0, REGIST_STA_REQUISTED_NONE, REGIST_STA_PROCEEDING, REGIST_STA_DONE, REGIST_STA_ABORTED};
       int registration_state_{ REGIST_STA_NONE };
       int pose_registration_max_{ 3 };
       int pose_registration_tried_count_{ 0 };
