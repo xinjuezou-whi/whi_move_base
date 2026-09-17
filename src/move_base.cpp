@@ -57,8 +57,10 @@ All text above must be included in any redistribution.
 #include <boost/thread.hpp>
 
 #include <geometry_msgs/Twist.h>
-
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <angles/angles.h>
+#include <base_local_planner/costmap_model.h>
+#include <tf/tf.h>
 
 namespace move_base {
 
@@ -204,6 +206,10 @@ namespace move_base {
     private_nh.param("registration_action", registration_action_, std::string("registration_action"));
     private_nh.param("registration_max_try", pose_registration_max_, 3);
     new_arrived_srv_ = private_nh.advertiseService("new_arrived", &MoveBase::onServiceNewGoalArrived, this);
+    private_nh.param("path_block_check_distance", global_path_block_check_distance_, 0.8);
+    private_nh.param("path_block_check_resolution", global_path_block_check_resolution_, 0.05);
+    private_nh.param("path_clear_confirm_time", path_clear_confirm_time_, 1.0);
+    private_nh.param("pause_while_blocked", pause_while_blocked_, false);
   }
 
   void MoveBase::reconfigureCB(move_base::MoveBaseConfig &config, uint32_t level){
@@ -1019,8 +1025,24 @@ namespace move_base {
           recovery_trigger_ = OSCILLATION_R;
         }
 
+        /*
+        * new policy:
+        *
+        * If the original global route is blocked by an obstacle,
+        * do NOT let local planner generate a detour. Stop and wait.
+        */
+        if (isGlobalPathBlocked(*controller_plan_))
         {
-         boost::unique_lock<costmap_2d::Costmap2D::mutex_t> lock(*(controller_costmap_ros_->getCostmap()->getMutex()));
+            ROS_WARN_THROTTLE(1.0, "Global path blocked. Pausing navigation.");
+
+            publishZeroVelocity();
+            path_clear_start_ = ros::Time(0);
+            state_ = PAUSED;
+            break;
+        }
+
+        {
+        boost::unique_lock<costmap_2d::Costmap2D::mutex_t> lock(*(controller_costmap_ros_->getCostmap()->getMutex()));
 
         if(tc_->computeVelocityCommands(cmd_vel)){
           ROS_DEBUG_NAMED( "move_base", "Got a valid command from the local planner: %.3lf, %.3lf, %.3lf",
@@ -1035,25 +1057,37 @@ namespace move_base {
           ROS_DEBUG_NAMED("move_base", "The local planner could not find a valid plan.");
           ros::Time attempt_end = last_valid_control_ + ros::Duration(controller_patience_);
 
-          //check if we've tried to find a valid control for longer than our time limit
-          if(ros::Time::now() > attempt_end){
-            //we'll move into our obstacle clearing mode
-            publishZeroVelocity();
-            state_ = CLEARING;
-            recovery_trigger_ = CONTROLLING_R;
-          }
-          else{
-            //otherwise, if we can't find a valid control, we'll go back to planning
-            last_valid_plan_ = ros::Time::now();
-            planning_retries_ = 0;
-            state_ = PLANNING;
-            publishZeroVelocity();
+          if (isGlobalPathBlocked(*controller_plan_))
+          {
+            state_ = PAUSED;
 
-            //enable the planner thread in case it isn't running on a clock
-            boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
-            runPlanner_ = true;
-            planner_cond_.notify_one();
-            lock.unlock();
+            publishZeroVelocity();
+            ROS_WARN_THROTTLE(1.0, "Global path blocked by obstacle. Pausing navigation.");
+          }
+          else
+          {
+            //check if we've tried to find a valid control for longer than our time limit
+            if(ros::Time::now() > attempt_end)
+            {
+              //we'll move into our obstacle clearing mode
+              publishZeroVelocity();
+              state_ = CLEARING;
+              recovery_trigger_ = CONTROLLING_R;
+            }
+            else
+            {
+              //otherwise, if we can't find a valid control, we'll go back to planning
+              last_valid_plan_ = ros::Time::now();
+              planning_retries_ = 0;
+              state_ = PLANNING;
+              publishZeroVelocity();
+
+              //enable the planner thread in case it isn't running on a clock
+              boost::unique_lock<boost::recursive_mutex> lock(planner_mutex_);
+              runPlanner_ = true;
+              planner_cond_.notify_one();
+              lock.unlock();
+            }
           }
         }
         }
@@ -1112,6 +1146,28 @@ namespace move_base {
           }
           resetState();
           return true;
+        }
+        break;
+      case PAUSED:
+        publishZeroVelocity();
+        if (!isGlobalPathBlocked(*controller_plan_))
+        {
+          if (path_clear_start_.isZero())
+          {
+              path_clear_start_ = ros::Time::now();
+          }
+
+          if ((ros::Time::now() - path_clear_start_).toSec() >= path_clear_confirm_time_)
+          {
+            ROS_INFO("Obstacle cleared. Resuming navigation.");
+
+            path_clear_start_ = ros::Time(0);
+            state_ = CONTROLLING;
+          }
+        }
+        else
+        {
+          path_clear_start_ = ros::Time(0);
         }
         break;
       default:
@@ -1472,4 +1528,138 @@ namespace move_base {
     Res.success = new_goal_arrived_;
     return true;
   }
+
+  bool MoveBase::isGlobalPathBlocked(const std::vector<geometry_msgs::PoseStamped>& global_plan)
+  {
+    if (!pause_while_blocked_ || global_plan.size() < 2 || controller_costmap_ros_ == nullptr)
+    {
+      return false;
+    }
+
+    costmap_2d::Costmap2D* costmap = controller_costmap_ros_->getCostmap();
+    if (costmap == nullptr)
+    {
+      return false;
+    }
+
+    // Do not make a "clear" decision from stale data.
+    if (!controller_costmap_ros_->isCurrent())
+    {
+      ROS_WARN_THROTTLE(1.0, "Local costmap is not current.");
+      return false;
+    }
+    // Current robot pose in local-costmap global frame.
+    geometry_msgs::PoseStamped robot_pose;
+    if (!controller_costmap_ros_->getRobotPose(robot_pose))
+    {
+      ROS_WARN_THROTTLE(1.0, "Unable to get robot pose.");
+      return false;
+    }
+
+    const std::string costmap_frame = controller_costmap_ros_->getGlobalFrameID();
+
+    // Transform plan to local costmap frame.
+    std::vector<geometry_msgs::PoseStamped> plan;
+    plan.reserve(global_plan.size());
+    for (const auto& pose : global_plan)
+    {
+      geometry_msgs::PoseStamped pose_now = pose;
+      // Ignore the timestamp of the original global plan.
+      // Transform the path using the latest available TF.
+      pose_now.header.stamp = ros::Time(0);
+
+      geometry_msgs::PoseStamped transformed;
+
+      try
+      {
+        tf_.transform(pose_now, transformed, costmap_frame);
+      }
+      catch (tf2::TransformException& ex)
+      {
+        ROS_WARN_THROTTLE(1.0, "Failed to transform global plan: %s", ex.what());
+        return false;
+      }
+
+      plan.push_back(transformed);
+    }
+
+    // Find closest global-plan point.
+    size_t closest_idx = 0;
+    double min_dist_sq = std::numeric_limits<double>::max();
+    for (size_t i = 0; i < plan.size(); ++i)
+    {
+      const double dx = plan[i].pose.position.x - robot_pose.pose.position.x;
+      const double dy = plan[i].pose.position.y - robot_pose.pose.position.y;
+
+      const double dist_sq = dx * dx + dy * dy;
+      if (dist_sq < min_dist_sq)
+      {
+        min_dist_sq = dist_sq;
+        closest_idx = i;
+      }
+    }
+
+    // use ROS's existing footprint collision implementation.
+    base_local_planner::CostmapModel world_model(*costmap);
+    const auto& footprint = controller_costmap_ros_->getRobotFootprint();
+    double checked_distance = 0.0;
+    // Check only the near future section.
+    for (size_t i = closest_idx; i + 1 < plan.size(); ++i)
+    {
+      const auto& p0 = plan[i];
+      const auto& p1 = plan[i + 1];
+      const double dx = p1.pose.position.x - p0.pose.position.x;
+      const double dy = p1.pose.position.y - p0.pose.position.y;
+      const double segment_length = std::hypot(dx, dy);
+      if (segment_length < 1e-6)
+      {
+        continue;
+      }
+
+      // Stop once we have checked enough of the future path.
+      if (checked_distance >= global_path_block_check_distance_)
+      {
+        break;
+      }
+
+      const double remaining = global_path_block_check_distance_ - checked_distance;
+      const double check_length = std::min(segment_length, remaining);
+
+      // Sample approximately at costmap resolution.
+      const double resolution = std::max(global_path_block_check_resolution_, costmap->getResolution());
+      const int samples = std::max(1, static_cast<int>(std::ceil(check_length / resolution)));
+
+      const double yaw0 = tf::getYaw(p0.pose.orientation);
+      const double yaw1 = tf::getYaw(p1.pose.orientation);
+      const double yaw_delta = angles::shortest_angular_distance(yaw0, yaw1);
+      for (int k = 0; k <= samples; ++k)
+      {
+        double distance_on_segment = static_cast<double>(k) / static_cast<double>(samples) * check_length;
+        double t = distance_on_segment / segment_length;
+        t = std::max(0.0, std::min(1.0, t));
+
+        const double x = p0.pose.position.x + t * dx;
+        const double y = p0.pose.position.y + t * dy;
+        const double theta = yaw0 + t * yaw_delta;
+
+        const double footprint_cost = world_model.footprintCost(x, y, theta,
+          footprint, inscribed_radius_, circumscribed_radius_);
+        if (footprint_cost < 0.0)
+        {
+          ROS_DEBUG("Global path blocked: x=%.3f y=%.3f yaw=%.3f cost=%.3f",
+            x, y, theta, footprint_cost);
+          return true;
+        }
+      }
+
+      checked_distance += check_length;
+      if (checked_distance >= global_path_block_check_distance_)
+      {
+        break;
+      }
+    }
+
+    return false;
+  }
+
 };

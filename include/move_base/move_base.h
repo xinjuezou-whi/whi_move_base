@@ -86,7 +86,8 @@ namespace move_base {
   enum MoveBaseState {
     PLANNING,
     CONTROLLING,
-    CLEARING
+    CLEARING,
+    PAUSED
   };
 
   enum RecoveryTrigger
@@ -212,6 +213,8 @@ namespace move_base {
 	    void callbackPoseRegGoalFeedback(const whi_interfaces::PoseRegistrationFeedbackConstPtr& Feedback);
       bool onServiceNewGoalArrived(std_srvs::SetBool::Request& Req, std_srvs::SetBool::Response& Res);
 
+      bool isGlobalPathBlocked(const std::vector<geometry_msgs::PoseStamped>& global_plan);
+
     private:
       tf2_ros::Buffer& tf_;
 
@@ -285,6 +288,12 @@ namespace move_base {
       int pose_registration_tried_count_{ 0 };
       ros::ServiceServer new_arrived_srv_;
       bool new_goal_arrived_{ false };
+
+      double global_path_block_check_distance_{ 0.8 };
+      double global_path_block_check_resolution_{ 0.05 };
+      double path_clear_confirm_time_{ 1.0 };
+      bool pause_while_blocked_{ false };
+      ros::Time path_clear_start_;
   };
 };
 #endif
