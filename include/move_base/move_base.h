@@ -79,6 +79,7 @@ Changelog:
 #include <whi_interfaces/PoseRegistrationAction.h>
 #include <actionlib/client/simple_action_client.h>
 #include "std_srvs/SetBool.h"
+#include <std_msgs/Bool.h>
 namespace move_base {
   //typedefs to help us out with the action server so that we don't hace to type so much
   typedef actionlib::SimpleActionServer<move_base_msgs::MoveBaseAction> MoveBaseActionServer;
@@ -294,7 +295,7 @@ namespace move_base {
       double path_clear_confirm_time_{ 1.0 };
       bool pause_while_blocked_{ false };
       ros::Time path_clear_start_;
+      ros::Publisher pause_pub_;
   };
 };
 #endif
-

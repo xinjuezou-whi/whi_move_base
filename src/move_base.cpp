@@ -210,6 +210,7 @@ namespace move_base {
     private_nh.param("path_block_check_resolution", global_path_block_check_resolution_, 0.05);
     private_nh.param("path_clear_confirm_time", path_clear_confirm_time_, 1.0);
     private_nh.param("pause_while_blocked", pause_while_blocked_, false);
+    pause_pub_ = nh.advertise<std_msgs::Bool>("movebase_pause", 1);
   }
 
   void MoveBase::reconfigureCB(move_base::MoveBaseConfig &config, uint32_t level){
@@ -1149,25 +1150,32 @@ namespace move_base {
         }
         break;
       case PAUSED:
-        publishZeroVelocity();
-        if (!isGlobalPathBlocked(*controller_plan_))
         {
-          if (path_clear_start_.isZero())
+          publishZeroVelocity();
+          std_msgs::Bool pauseMsg;
+          if (!isGlobalPathBlocked(*controller_plan_))
           {
-              path_clear_start_ = ros::Time::now();
+            if (path_clear_start_.isZero())
+            {
+                path_clear_start_ = ros::Time::now();
+            }
+
+            if ((ros::Time::now() - path_clear_start_).toSec() >= path_clear_confirm_time_)
+            {
+              ROS_INFO("Obstacle cleared. Resuming navigation.");
+
+              path_clear_start_ = ros::Time(0);
+              state_ = CONTROLLING;
+            }
+
+            pauseMsg.data = false;
           }
-
-          if ((ros::Time::now() - path_clear_start_).toSec() >= path_clear_confirm_time_)
+          else
           {
-            ROS_INFO("Obstacle cleared. Resuming navigation.");
-
             path_clear_start_ = ros::Time(0);
-            state_ = CONTROLLING;
+            pauseMsg.data = true;
           }
-        }
-        else
-        {
-          path_clear_start_ = ros::Time(0);
+          pause_pub_.publish(pauseMsg);
         }
         break;
       default:
