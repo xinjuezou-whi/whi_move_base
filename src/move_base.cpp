@@ -1001,19 +1001,22 @@ namespace move_base {
         }
         else
         {
-          if (registration_state_ == REGIST_STA_NONE)
+          if (align_pattern_)
           {
-            setPoseRegistrationGoal(goal, "plan_start");
-            registration_state_ = REGIST_STA_PROCEEDING; // guarantee that no extra re-entry
-            return false;
-          }
-          else if (registration_state_ == REGIST_STA_PROCEEDING)
-          {
-            return false;
-          }
-          else if (registration_state_ == REGIST_STA_DONE || registration_state_ == REGIST_STA_ABORTED)
-          {
-            resetRegistrationState(REGIST_STA_REQUISTED_NONE);
+            if (registration_state_ == REGIST_STA_NONE)
+            {
+              setPoseRegistrationGoal(goal, "plan_start");
+              registration_state_ = REGIST_STA_PROCEEDING; // guarantee that no extra re-entry
+              return false;
+            }
+            else if (registration_state_ == REGIST_STA_PROCEEDING)
+            {
+              return false;
+            }
+            else if (registration_state_ == REGIST_STA_DONE || registration_state_ == REGIST_STA_ABORTED)
+            {
+              resetRegistrationState(REGIST_STA_REQUISTED_NONE);
+            }
           }
         }
 
