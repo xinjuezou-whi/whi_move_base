@@ -294,6 +294,8 @@ namespace move_base {
       double global_path_block_check_resolution_{ 0.05 };
       double path_clear_confirm_time_{ 1.0 };
       bool pause_while_blocked_{ false };
+      double pause_timeout_{ 3.0 };
+      ros::Time pause_start_;
       ros::Time path_clear_start_;
       ros::Publisher pause_pub_;
   };

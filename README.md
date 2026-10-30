@@ -44,4 +44,5 @@ path_block_check_distance: 0.8
 path_block_check_resolution: 0.05 
 path_clear_confirm_time: 0.8
 pause_while_blocked: true
+pause_timeout: 5.0
 ```

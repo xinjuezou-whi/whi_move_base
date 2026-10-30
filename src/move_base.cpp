@@ -210,6 +210,7 @@ namespace move_base {
     private_nh.param("path_block_check_resolution", global_path_block_check_resolution_, 0.05);
     private_nh.param("path_clear_confirm_time", path_clear_confirm_time_, 1.0);
     private_nh.param("pause_while_blocked", pause_while_blocked_, false);
+    private_nh.param("pause_timeout", pause_timeout_, 3.0);
     pause_pub_ = nh.advertise<std_msgs::Bool>("movebase_pause", 1);
   }
 
@@ -1040,6 +1041,7 @@ namespace move_base {
             ROS_WARN_THROTTLE(1.0, "Global path blocked. Pausing navigation.");
 
             publishZeroVelocity();
+            pause_start_ = ros::Time::now();
             path_clear_start_ = ros::Time(0);
             state_ = PAUSED;
             break;
@@ -1160,7 +1162,7 @@ namespace move_base {
           {
             if (path_clear_start_.isZero())
             {
-                path_clear_start_ = ros::Time::now();
+              path_clear_start_ = ros::Time::now();
             }
 
             if ((ros::Time::now() - path_clear_start_).toSec() >= path_clear_confirm_time_)
@@ -1175,8 +1177,20 @@ namespace move_base {
           }
           else
           {
-            path_clear_start_ = ros::Time(0);
-            pauseMsg.data = true;
+            if ((ros::Time::now() - pause_start_).toSec() >= pause_timeout_)
+            {
+              ROS_INFO("Pause timeout. Resuming navigation.");
+
+              path_clear_start_ = ros::Time(0);
+              state_ = CONTROLLING;
+
+              pauseMsg.data = false;
+            }
+            else
+            {
+              path_clear_start_ = ros::Time(0);
+              pauseMsg.data = true;
+            }
           }
           pause_pub_.publish(pauseMsg);
         }
